@@ -2,12 +2,14 @@ import express, { Request, Response, NextFunction } from "express";
 import puppeteer, { Browser } from "puppeteer";
 import { z } from "zod";
 
-// Input validation: require title + cards[].title + cards[].description.
-// Extra fields are allowed and ignored.
-const IncomingCard = z.object({
-  title: z.string().min(1),
-  description: z.string().min(1),
-}).passthrough();
+// Validate input: only title + cards[].title + cards[].description are required.
+// Extra fields in the body are allowed and ignored.
+const IncomingCard = z
+  .object({
+    title: z.string().min(1),
+    description: z.string().min(1),
+  })
+  .passthrough();
 
 const IncomingPayload = z.object({
   title: z.string().min(1),
@@ -72,49 +74,35 @@ function buildHtmlDoc(data: Normalized): string {
 <title>${escapeHtml(title)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600&family=Noto+Sans+Devanagari:wght@400;600&display=swap" rel="stylesheet">
 <style>
-  /* Tight printable page with thin margins to utilize space */
-  @page { size: A4; margin: 8mm; }
-
-  /* Keep text font sizes; optimize spacing and layout */
+  @page { size: A4; margin: 14mm; }
   body { font-family: "Noto Sans", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color:#111; }
-  h1 { font-size: 18px; margin: 0 0 6px; }
-  h2 { font-size: 14px; margin: 8px 0 6px; }
-
-  /* Two-column layout for each section to double visible items */
-  .section { break-inside: avoid; margin: 0 0 6px; }
-  .twocol {
-    column-count: 2;
-    column-gap: 10mm;
-  }
-  .pane { break-inside: avoid; margin: 0 0 6px; }
-
-  /* Tables remain bilingual with 3 columns: S.No. | English | Hindi */
-  table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 0 0 6px; }
-  th, td { border: 0.5px solid #ddd; padding: 4px 6px; vertical-align: top; }
-  th { background: #f3f3f3; font-weight: 600; font-size: 11px; }
-  td { font-size: 12.5px; line-height: 1.35; }
-  .hin { font-family: "Noto Sans Devanagari","Noto Sans",Mangal,"Hind",Arial,sans-serif; font-size: 13.5px; line-height: 1.35; }
-
-  /* Column widths tuned for narrower panes without changing text sizes */
-  col.sno { width: 9%; }
-  col.eng { width: 45%; }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  h2 { font-size: 16px; margin: 14px 0 6px; }
+  table { width:100%; border-collapse: collapse; }
+  th, td { border:1px solid #ddd; padding:8px; vertical-align: top; }
+  th { background:#f5f5f5; font-weight:600; font-size:12px; }
+  td { font-size:13px; }
+  .hin { font-family: "Noto Sans Devanagari","Noto Sans",Mangal,"Hind",Arial,sans-serif; font-size:15px; }
+  col.sno { width: 8%; }
+  col.eng { width: 46%; }
   col.hin { width: 46%; }
-
-  /* Allow rows to break across pages; avoid large gaps at page bottom */
-  tr, thead, tbody { break-inside: auto; page-break-inside: auto; }
-  table { page-break-inside: auto; }
+  .section { break-inside: avoid; margin-bottom: 12px; }
 </style>
 </head>
 <body>
 <h1>${escapeHtml(title)}</h1>
-${sections.map(s => {
-  const [leftRows, rightRows] = splitRows(s.rows);
-  const tableHtml = (rows: Row[]) => `
+${sections
+  .map(
+    (s) => `
+  <div class="section">
+    <h2>${escapeHtml(s.name)}</h2>
     <table>
       <colgroup><col class="sno"><col class="eng"><col class="hin"></colgroup>
       <thead><tr><th>S.No.</th><th>English</th><th>Hindi</th></tr></thead>
       <tbody>
-        ${rows.map(r => `
+        ${s.rows
+          .map(
+            (r) => `
           <tr>
             <td>${escapeHtml(r.sno)}</td>
             <td>${escapeHtml(r.en)}</td>
@@ -123,20 +111,10 @@ ${sections.map(s => {
         `).join("")}
       </tbody>
     </table>
-  `;
-  return `
-  <div class="section">
-    <h2>${escapeHtml(s.name)}</h2>
-    <div class="twocol">
-      <div class="pane">
-        ${tableHtml(leftRows)}
-      </div>
-      <div class="pane">
-        ${tableHtml(rightRows)}
-      </div>
-    </div>
-  </div>`;
-}).join("")}
+  </div>
+`
+  )
+  .join("")}
 </body></html>`;
 }
 
@@ -178,8 +156,8 @@ app.post("/pdf", async (req: Request, res: Response) => {
     await page.setContent(html, { waitUntil: "networkidle0" });
     const pdf = await page.pdf({
       format: "A4",
-      printBackground: true
-      // CSS @page controls margins
+      printBackground: true,
+      margin: { top: "14mm", right: "14mm", bottom: "14mm", left: "14mm" },
     });
     await page.close();
 
