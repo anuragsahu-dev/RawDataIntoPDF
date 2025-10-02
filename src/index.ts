@@ -2,34 +2,26 @@ import express, { Request, Response, NextFunction } from "express";
 import puppeteer, { Browser } from "puppeteer";
 import { z } from "zod";
 
-// Validate input: only title + cards[].title + cards[].description are required.
-// Extra fields in the body are allowed and ignored.
-const IncomingCard = z
-  .object({
-    title: z.string().min(1),
-    description: z.string().min(1),
-  })
-  .passthrough();
+// Input validation: require title + cards[].title + cards[].description
+const IncomingCard = z.object({
+  title: z.string().min(1),
+  description: z.string().min(1),
+}).passthrough();
 
-const IncomingPayload = z
-  .object({
-    title: z.string().min(1),
-    cards: z.array(IncomingCard).min(1),
-  })
-  .passthrough();
+const IncomingPayload = z.object({
+  title: z.string().min(1),
+  cards: z.array(IncomingCard).min(1),
+}).passthrough();
 
 type Row = { sno: string; en: string; hi: string };
 type Section = { name: string; rows: Row[] };
 type Normalized = { title: string; sections: Section[] };
 
 function escapeHtml(s: string): string {
-  return s.replace(
-    /[&<>"]/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!)
-  );
+  return s.replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;" }[c]!));
 }
 
-// Extract S.No., English, Hindi cells from each <tr> (expects 3 <td> per row)
+// Extract S.No., English, Hindi from each table row (expects 3 <td>)
 function extractRowsFromTableHTML(html: string): Row[] {
   const out: Row[] = [];
   const tbodyMatch = html.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i);
@@ -72,49 +64,56 @@ function buildHtmlDoc(data: Normalized): string {
 <title>${escapeHtml(title)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600&family=Noto+Sans+Devanagari:wght@400;600&display=swap" rel="stylesheet">
 <style>
-  @page { size: A4; margin: 14mm; }
+  /* Tighter printable page with thin margins */
+  @page { size: A4; margin: 8mm; }
+
+  /* Keep font sizes; optimize spacing */
   body { font-family: "Noto Sans", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color:#111; }
-  h1 { font-size: 18px; margin: 0 0 8px; }
-  h2 { font-size: 16px; margin: 14px 0 6px; }
-  table { width:100%; border-collapse: collapse; }
-  th, td { border:1px solid #ddd; padding:8px; vertical-align: top; }
-  th { background:#f5f5f5; font-weight:600; font-size:12px; }
-  td { font-size:13px; }
-  .hin { font-family: "Noto Sans Devanagari","Noto Sans",Mangal,"Hind",Arial,sans-serif; font-size:15px; }
-  col.sno { width: 8%; }
+  h1 { font-size: 18px; margin: 0 0 6px; }
+  h2 { font-size: 14px; margin: 8px 0 4px; }
+
+  /* Denser table: smaller padding and borders */
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  th, td { border: 0.5px solid #ddd; padding: 4px 6px; vertical-align: top; }
+  th { background: #f3f3f3; font-weight: 600; font-size: 11px; }
+  td { font-size: 12.5px; line-height: 1.35; }
+
+  /* Devanagari font unchanged, slightly denser leading */
+  .hin { font-family: "Noto Sans Devanagari","Noto Sans",Mangal,"Hind",Arial,sans-serif; font-size: 13.5px; line-height: 1.35; }
+
+  /* Column widths tuned to reduce wrapping */
+  col.sno { width: 7%; }
   col.eng { width: 46%; }
-  col.hin { width: 46%; }
-  .section { break-inside: avoid; margin-bottom: 12px; }
+  col.hin { width: 47%; }
+
+  /* Remove gaps between sections; no forced breaks */
+  .section { break-inside: auto; margin: 0; }
+
+  /* Allow rows to break across pages to avoid big gaps */
+  tr, thead, tbody { break-inside: auto; page-break-inside: auto; }
+  table { page-break-inside: auto; }
 </style>
 </head>
 <body>
 <h1>${escapeHtml(title)}</h1>
-${sections
-  .map(
-    (s) => `
+${sections.map(s => `
   <div class="section">
     <h2>${escapeHtml(s.name)}</h2>
     <table>
       <colgroup><col class="sno"><col class="eng"><col class="hin"></colgroup>
       <thead><tr><th>S.No.</th><th>English</th><th>Hindi</th></tr></thead>
       <tbody>
-        ${s.rows
-          .map(
-            (r) => `
+        ${s.rows.map(r => `
           <tr>
             <td>${escapeHtml(r.sno)}</td>
             <td>${escapeHtml(r.en)}</td>
             <td class="hin">${escapeHtml(r.hi)}</td>
           </tr>
-        `
-          )
-          .join("")}
+        `).join("")}
       </tbody>
     </table>
   </div>
-`
-  )
-  .join("")}
+`).join("")}
 </body></html>`;
 }
 
@@ -122,7 +121,6 @@ const app = express();
 app.use(express.json({ limit: "1mb" }));
 
 let browser: Browser | null = null;
-
 async function getBrowser() {
   if (!browser) {
     browser = await puppeteer.launch({
@@ -132,27 +130,21 @@ async function getBrowser() {
   return browser;
 }
 
-// Single endpoint that validates, parses, generates and streams the PDF
+// Single endpoint: validate -> parse -> generate -> stream PDF
 app.post("/pdf", async (req: Request, res: Response) => {
   const parsed = IncomingPayload.safeParse(req.body);
   if (!parsed.success) {
-    return res
-      .status(400)
-      .json({ error: "Invalid payload", issues: parsed.error.issues });
+    return res.status(400).json({ error: "Invalid payload", issues: parsed.error.issues });
   }
   const { title, cards } = parsed.data;
 
-  const sections: Section[] = cards
-    .map((c) => ({
-      name: c.title,
-      rows: extractRowsFromTableHTML(c.description),
-    }))
-    .filter((s) => s.rows.length > 0);
+  const sections: Section[] = cards.map(c => ({
+    name: c.title,
+    rows: extractRowsFromTableHTML(c.description),
+  })).filter(s => s.rows.length > 0);
 
   if (!sections.length) {
-    return res
-      .status(400)
-      .json({ error: "No rows extracted from provided HTML." });
+    return res.status(400).json({ error: "No rows extracted from provided HTML." });
   }
 
   const html = buildHtmlDoc({ title, sections });
@@ -163,18 +155,20 @@ app.post("/pdf", async (req: Request, res: Response) => {
     await page.setContent(html, { waitUntil: "networkidle0" });
     const pdf = await page.pdf({
       format: "A4",
-      printBackground: true,
-      margin: { top: "14mm", right: "14mm", bottom: "14mm", left: "14mm" },
+      printBackground: true
+      // @page CSS controls margins; no margin config here
     });
     await page.close();
+
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      'attachment; filename="lesson-22.pdf"'
-    );
+    res.setHeader("Content-Disposition", 'attachment; filename="lesson-22.pdf"');
     return res.send(pdf);
-  } catch {
-    if (browser) await browser.close();
+  } catch (err) {
+    console.error(err);
+    if (browser) {
+      try { await browser.close(); } catch {}
+    }
+    browser = null;
     return res.status(500).json({ error: "PDF generation failed" });
   }
 });
