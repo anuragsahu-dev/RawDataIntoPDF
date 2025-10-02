@@ -2,14 +2,11 @@ import express, { Request, Response, NextFunction } from "express";
 import puppeteer, { Browser } from "puppeteer";
 import { z } from "zod";
 
-// Validate input: only title + cards[].title + cards[].description are required.
-// Extra fields in the body are allowed and ignored.
-const IncomingCard = z
-  .object({
-    title: z.string().min(1),
-    description: z.string().min(1),
-  })
-  .passthrough();
+// Input validation: require title + cards[].title + cards[].description
+const IncomingCard = z.object({
+  title: z.string().min(1),
+  description: z.string().min(1),
+}).passthrough();
 
 const IncomingPayload = z.object({
   title: z.string().min(1),
@@ -31,11 +28,11 @@ function extractRowsFromTableHTML(html: string): Row[] {
   const scope = tbodyMatch ? tbodyMatch[1] : html;
 
   const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-  let tr: RegExpExecArray | null;
+  let tr;
   while ((tr = trRe.exec(scope)) !== null) {
     const cells: string[] = [];
     const tdRe = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-    let td: RegExpExecArray | null;
+    let td;
     while ((td = tdRe.exec(tr[1])) !== null) {
       const text = td[1]
         .replace(/<br\s*\/?>/gi, "\n")
@@ -60,13 +57,6 @@ function extractRowsFromTableHTML(html: string): Row[] {
 
 function buildHtmlDoc(data: Normalized): string {
   const { title, sections } = data;
-
-  // helper to split rows into two columns
-  const splitRows = (rows: Row[]) => {
-    const mid = Math.ceil(rows.length / 2);
-    return [rows.slice(0, mid), rows.slice(mid)];
-  };
-
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -74,35 +64,46 @@ function buildHtmlDoc(data: Normalized): string {
 <title>${escapeHtml(title)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600&family=Noto+Sans+Devanagari:wght@400;600&display=swap" rel="stylesheet">
 <style>
-  @page { size: A4; margin: 14mm; }
+  /* Tighter printable page with thin margins */
+  @page { size: A4; margin: 8mm; }
+
+  /* Keep font sizes; optimize spacing */
   body { font-family: "Noto Sans", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color:#111; }
-  h1 { font-size: 18px; margin: 0 0 8px; }
-  h2 { font-size: 16px; margin: 14px 0 6px; }
-  table { width:100%; border-collapse: collapse; }
-  th, td { border:1px solid #ddd; padding:8px; vertical-align: top; }
-  th { background:#f5f5f5; font-weight:600; font-size:12px; }
-  td { font-size:13px; }
-  .hin { font-family: "Noto Sans Devanagari","Noto Sans",Mangal,"Hind",Arial,sans-serif; font-size:15px; }
-  col.sno { width: 8%; }
+  h1 { font-size: 18px; margin: 0 0 6px; }
+  h2 { font-size: 14px; margin: 8px 0 4px; }
+
+  /* Denser table: smaller padding and borders */
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  th, td { border: 0.5px solid #ddd; padding: 4px 6px; vertical-align: top; }
+  th { background: #f3f3f3; font-weight: 600; font-size: 11px; }
+  td { font-size: 12.5px; line-height: 1.35; }
+
+  /* Devanagari font unchanged, slightly denser leading */
+  .hin { font-family: "Noto Sans Devanagari","Noto Sans",Mangal,"Hind",Arial,sans-serif; font-size: 13.5px; line-height: 1.35; }
+
+  /* Column widths tuned to reduce wrapping */
+  col.sno { width: 7%; }
   col.eng { width: 46%; }
-  col.hin { width: 46%; }
-  .section { break-inside: avoid; margin-bottom: 12px; }
+  col.hin { width: 47%; }
+
+  /* Remove gaps between sections; no forced breaks */
+  .section { break-inside: auto; margin: 0; }
+
+  /* Allow rows to break across pages to avoid big gaps */
+  tr, thead, tbody { break-inside: auto; page-break-inside: auto; }
+  table { page-break-inside: auto; }
 </style>
 </head>
 <body>
 <h1>${escapeHtml(title)}</h1>
-${sections
-  .map(
-    (s) => `
+${sections.map(s => `
   <div class="section">
     <h2>${escapeHtml(s.name)}</h2>
     <table>
       <colgroup><col class="sno"><col class="eng"><col class="hin"></colgroup>
       <thead><tr><th>S.No.</th><th>English</th><th>Hindi</th></tr></thead>
       <tbody>
-        ${s.rows
-          .map(
-            (r) => `
+        ${s.rows.map(r => `
           <tr>
             <td>${escapeHtml(r.sno)}</td>
             <td>${escapeHtml(r.en)}</td>
@@ -112,9 +113,7 @@ ${sections
       </tbody>
     </table>
   </div>
-`
-  )
-  .join("")}
+`).join("")}
 </body></html>`;
 }
 
@@ -156,8 +155,8 @@ app.post("/pdf", async (req: Request, res: Response) => {
     await page.setContent(html, { waitUntil: "networkidle0" });
     const pdf = await page.pdf({
       format: "A4",
-      printBackground: true,
-      margin: { top: "14mm", right: "14mm", bottom: "14mm", left: "14mm" },
+      printBackground: true
+      // @page CSS controls margins; no margin config here
     });
     await page.close();
 
