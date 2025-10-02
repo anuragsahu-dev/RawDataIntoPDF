@@ -2,7 +2,8 @@ import express, { Request, Response, NextFunction } from "express";
 import puppeteer, { Browser } from "puppeteer";
 import { z } from "zod";
 
-// Incoming shape: title + cards[] with title and description; other keys allowed
+// Validate input: only title + cards[].title + cards[].description are required.
+// Extra fields in the body are allowed and ignored.
 const IncomingCard = z.object({
   title: z.string().min(1),
   description: z.string().min(1),
@@ -13,8 +14,6 @@ const IncomingPayload = z.object({
   cards: z.array(IncomingCard).min(1),
 }).passthrough();
 
-
-
 type Row = { sno: string; en: string; hi: string };
 type Section = { name: string; rows: Row[] };
 type Normalized = { title: string; sections: Section[] };
@@ -23,7 +22,7 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;" }[c]!));
 }
 
-// Simple extractor: expects 3 <td> cells per row
+// Extract S.No., English, Hindi cells from each <tr> (expects 3 <td> per row)
 function extractRowsFromTableHTML(html: string): Row[] {
   const out: Row[] = [];
   const tbodyMatch = html.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i);
@@ -107,21 +106,8 @@ ${sections.map(s => `
 const app = express();
 app.use(express.json({ limit: "1mb" }));
 
-// 1) Trim: maps cards[].title/description -> cards[].name/description
-app.post("/trim-cards", (req: Request, res: Response) => {
-  const parsed = IncomingPayload.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid payload", issues: parsed.error.issues });
-  }
-  const { title, cards } = parsed.data;
-  return res.json({
-    title,
-    cards: cards.map(c => ({ title: c.title, description: c.description })),
-  });
-});
-
-// 2) PDF: parses rows and renders a PDF
-app.post("/pdf-html", async (req: Request, res: Response) => {
+// Single endpoint that validates, parses, generates and streams the PDF
+app.post("/pdf", async (req: Request, res: Response) => {
   const parsed = IncomingPayload.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid payload", issues: parsed.error.issues });
@@ -164,7 +150,7 @@ app.post("/pdf-html", async (req: Request, res: Response) => {
   }
 });
 
-// Basic health route and error handler
+// Health + error handler
 app.get("/health", (_req, res) => res.json({ ok: true }));
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   console.error(err);
