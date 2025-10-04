@@ -28,11 +28,11 @@ function extractRowsFromTableHTML(html: string): Row[] {
   const scope = tbodyMatch ? tbodyMatch[1] : html;
 
   const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-  let tr;
+  let tr: RegExpExecArray | null;
   while ((tr = trRe.exec(scope)) !== null) {
     const cells: string[] = [];
     const tdRe = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-    let td;
+    let td: RegExpExecArray | null;
     while ((td = tdRe.exec(tr[1])) !== null) {
       const text = td[1]
         .replace(/<br\s*\/?>/gi, "\n")
@@ -64,32 +64,21 @@ function buildHtmlDoc(data: Normalized): string {
 <title>${escapeHtml(title)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600&family=Noto+Sans+Devanagari:wght@400;600&display=swap" rel="stylesheet">
 <style>
-  /* Tighter printable page with thin margins */
-  @page { size: A4; margin: 8mm; }
+  /* Base: top/right/bottom/left = 8/8/4/8 mm */
+  @page { size: A4; margin: 4mm 6mm 4mm 6mm; }
 
-  /* Keep font sizes; optimize spacing */
   body { font-family: "Noto Sans", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color:#111; }
   h1 { font-size: 18px; margin: 0 0 6px; }
   h2 { font-size: 14px; margin: 8px 0 4px; }
-
-  /* Denser table: smaller padding and borders */
   table { width: 100%; border-collapse: collapse; table-layout: fixed; }
   th, td { border: 0.5px solid #ddd; padding: 4px 6px; vertical-align: top; }
   th { background: #f3f3f3; font-weight: 600; font-size: 11px; }
-  td { font-size: 12.5px; line-height: 1.35; }
-
-  /* Devanagari font unchanged, slightly denser leading */
-  .hin { font-family: "Noto Sans Devanagari","Noto Sans",Mangal,"Hind",Arial,sans-serif; font-size: 13.5px; line-height: 1.35; }
-
-  /* Column widths tuned to reduce wrapping */
+  td { font-size: 13.5px; line-height: 1.35; }
+  .hin { font-family: "Noto Sans Devanagari","Noto Sans",Mangal,"Hind",Arial,sans-serif; font-size: 14.5px; line-height: 1.35; }
   col.sno { width: 7%; }
   col.eng { width: 46%; }
   col.hin { width: 47%; }
-
-  /* Remove gaps between sections; no forced breaks */
   .section { break-inside: auto; margin: 0; }
-
-  /* Allow rows to break across pages to avoid big gaps */
   tr, thead, tbody { break-inside: auto; page-break-inside: auto; }
   table { page-break-inside: auto; }
 </style>
@@ -156,7 +145,7 @@ app.post("/pdf", async (req: Request, res: Response) => {
     const pdf = await page.pdf({
       format: "A4",
       printBackground: true
-      // @page CSS controls margins; no margin config here
+      // CSS @page controls margins
     });
     await page.close();
 
