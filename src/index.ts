@@ -74,7 +74,7 @@ function buildHtmlDoc(data: Normalized): string {
   th, td { border: 0.5px solid #ddd; padding: 4px 6px; vertical-align: top; }
   th { background: #f3f3f3; font-weight: 600; font-size: 11px; }
   td { font-size: 13.5px; line-height: 1.35; }
-  .hin { font-family: "Noto Sans Devanagari","Noto Sans",Mangal,"Hind",Arial,sans-serif; font-size: 14.5px; line-height: 1.35; }
+  .hin { font-family: "Noto Sans Devanagari","Noto Sans",Mangal,"Hind",Arial,sans-serif; font-size: 14px; line-height: 1.35; }
   col.sno { width: 7%; }
   col.eng { width: 46%; }
   col.hin { width: 47%; }
@@ -150,7 +150,7 @@ app.post("/pdf", async (req: Request, res: Response) => {
     await page.close();
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", 'attachment; filename="lesson-22.pdf"');
+    res.setHeader("Content-Disposition", `attachment; filename=${title}.pdf`);
     return res.send(pdf);
   } catch (err) {
     console.error(err);
